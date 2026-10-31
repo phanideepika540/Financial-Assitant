@@ -1,0 +1,23 @@
+app:
+  title: AI Finance Assistant
+  max_history_messages: 12
+  max_input_characters: 6000
+  data_dir: data
+  database_file: finance_assistant.sqlite3
+  chroma_dir: chroma
+  knowledge_base_dir: src/data/knowledge_base
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  embedding_model: text-embedding-3-small
+  temperature: 0.2
+
+market_data:
+  provider: yfinance
+  history_period: 5d
+
+news:
+  provider: cnbc_finance_rss
+  feed_url: https://www.cnbc.com/id/10000664/device/rss/rss.html
+  max_items: 6
