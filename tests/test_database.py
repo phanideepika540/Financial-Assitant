@@ -126,6 +126,22 @@ def test_persists_conversation_in_chronological_order(tmp_path):
     assert all(datetime.fromisoformat(message["created_at"]) for message in messages)
 
 
+def test_persists_market_chart_with_assistant_message(tmp_path):
+    database = Database(tmp_path / "assistant.sqlite3")
+    user_id = database.register("chart_user", "long-password-123")
+    chart = {
+        "symbol": "AAPL",
+        "dates": ["2026-10-28", "2026-10-29"],
+        "closes": [101.25, 103.5],
+        "retrieved_at": "2026-10-30T12:00:00+00:00",
+        "provider": "Yahoo Finance via yfinance",
+    }
+
+    database.save_message(user_id, "assistant", "AAPL price update.", chart)
+
+    assert database.recent_messages(user_id)[0]["chart_data"] == chart
+
+
 def test_portfolio_holdings_are_saved_per_account_and_can_be_replaced(tmp_path):
     database = Database(tmp_path / "assistant.sqlite3")
     first_user = database.register("portfolio_one", "long-password-123")

@@ -159,12 +159,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .conversation-section { margin-top: 29px; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; margin-bottom: 12px; }
+.conversation-actions { display: flex; align-items: center; gap: 12px; }
 .conversation-kicker { color: #869184; display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
 .conversation-kicker svg { color: #849782; }
 .section-heading h2 { margin: 7px 0 0; color: #394b3f; font-family: var(--serif); font-weight: 400; font-size: 21px; }
 .history-count { margin-bottom: 2px; color: #a1a79f; font-size: 9px; }
+.clear-history-button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #e8dfdd; border-radius: 6px; background: #fffefa; color: #a45e56; font-size: 9px; }
+.clear-history-button:hover:not(:disabled) { border-color: #d7aaa3; background: #fff5f2; }
+.clear-history-button:disabled { cursor: not-allowed; opacity: .55; }
 .conversation-card { overflow: hidden; border: 1px solid #e9eae4; border-radius: 10px; background: #fffefa; }
 .chat-scroll { max-height: 420px; min-height: 219px; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
+.conversation-card > .history-expand { margin: 12px 0 0 23px; }
+.history-notice { margin: 0 0 9px; color: #527257; font-size: 10px; }
 .empty-chat { min-height: 219px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 26px 18px 23px; text-align: center; }
 .empty-icon { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 12px; background: #edf1e9; color: #738974; }
 .empty-chat h3 { margin: 12px 0 5px; color: #4c5b4f; font-family: var(--serif); font-weight: 400; font-size: 17px; }
@@ -178,6 +184,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .message-avatar { flex: 0 0 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; background: #e8eee5; color: #55745a; font-size: 10px; font-weight: 700; }
 .message.user .message-avatar { color: #65756a; background: #f0f1ec; border-radius: 50%; }
 .message-body { min-width: 0; flex: 1; }
+.market-chart { max-width: 720px; margin: 15px 0 2px; padding: 12px 13px 9px; border: 1px solid #e8e3f0; border-radius: 8px; background: linear-gradient(145deg, #fff, #faf8ff); }
+.market-chart-heading { display: flex; justify-content: space-between; gap: 12px; color: #77718d; font-size: 9px; }
+.market-chart-heading strong { color: #47416f; font-size: 11px; }
+.market-chart-change { font-weight: 700; white-space: nowrap; }
+.market-chart-change.positive { color: #39836c; }
+.market-chart-change.negative { color: #b75d69; }
+.market-chart-plot { display: block; width: 100%; height: auto; margin-top: 9px; overflow: visible; }
+.market-chart-grid { stroke: #ece9f1; stroke-width: 1; }
+.market-chart-axis { fill: #9690a5; font-family: inherit; font-size: 10px; }
+.market-chart-line { fill: none; stroke: #786bc2; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+.market-chart-point { fill: #fff; stroke: #786bc2; stroke-width: 2; }
+.market-chart-source { margin-top: 4px; color: #9893a3; font-size: 8px; }
 .message-meta { min-height: 23px; display: flex; align-items: center; gap: 9px; }
 .message-meta > strong { color: #46564a; font-size: 10px; }
 .message-timestamp { margin-left: auto; color: #a0a49d; font-size: 8px; font-weight: 400; white-space: nowrap; }
@@ -202,6 +220,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sources-details[open] summary > svg:last-child { transform: rotate(180deg); }
 .sources-details ul { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 15px; font-size: 9px; overflow-wrap: anywhere; }
 .sources-details a { color: #54755b; display: inline-flex; align-items: center; gap: 4px; }
+.retrieval-filter { margin: 8px 0; font-size: 9px; }
+.citation-metadata { color: #9993a7; font-size: 8px; }
 .thinking-label { display: flex; align-items: center; gap: 5px; color: #919a8f; font-size: 9px; }
 .thinking-label > span { height: 5px; width: 5px; background: #8eaa8e; border-radius: 50%; animation: pulse 1.4s infinite ease-in-out; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
@@ -761,4 +781,59 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 760px) {
   .sidebar { box-shadow: 5px 0 18px #28295320; }
   .welcome-mark { background: radial-gradient(circle, #fff4e8 0 43%, #e5e0ff 44% 72%, #d2e7f2 73%); }
+}
+
+.goal-plan {
+  margin: 20px 2px 0;
+  padding: 18px;
+  border: 1px solid #e6deef;
+  border-radius: 9px;
+  background: #fffefe;
+}
+.goal-plan-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.goal-plan-kicker { color: #7866b3; font-size: 8px; font-weight: 700; letter-spacing: 1px; }
+.goal-plan-heading h3 { margin: 5px 0 0; color: #413b73; font-family: var(--serif); font-size: 18px; font-weight: 400; }
+.goal-plan-assumption { color: #88839b; font-size: 9px; }
+.goal-plan-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 15px; }
+.goal-plan-stats > div { display: grid; gap: 6px; min-width: 0; padding: 10px; border: 1px solid #eeeaf3; border-radius: 7px; background: #fdfbff; }
+.goal-plan-stats span, .goal-progress-label { color: #817c91; font-size: 9px; }
+.goal-plan-stats strong { overflow-wrap: anywhere; color: #47416f; font-size: 13px; font-weight: 700; }
+.goal-progress-label { display: flex; justify-content: space-between; margin: 14px 0 6px; }
+.goal-progress-label strong { color: #5c50a2; }
+.goal-progress-track { height: 7px; overflow: hidden; border-radius: 5px; background: #eeeaf4; }
+.goal-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #e97663, #8b75ce); transition: width .2s ease; }
+.goal-plan-status { margin: 11px 0 0; color: #625a83; font-size: 10px; line-height: 1.6; }
+.goal-milestones { margin-top: 16px; }
+.goal-milestones h4 { margin: 0 0 8px; color: #514a78; font-size: 10px; font-weight: 700; }
+.goal-table-wrap { overflow-x: auto; }
+.goal-milestones table { width: 100%; border-collapse: collapse; text-align: left; }
+.goal-milestones th, .goal-milestones td { padding: 8px 10px; border-bottom: 1px solid #efecf3; color: #69647d; font-size: 9px; }
+.goal-milestones thead th { color: #918ba1; font-size: 8px; font-weight: 600; }
+.goal-milestones tbody th { color: #514a78; font-weight: 600; }
+.goal-milestones tbody tr:last-child th, .goal-milestones tbody tr:last-child td { border-bottom: 0; }
+.goal-plan-disclaimer { margin: 12px 0 0; color: #9893a3; font-size: 8px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .goal-plan { margin-right: 0; margin-left: 0; padding: 13px; }
+  .goal-plan-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 420px) {
+  .goal-plan-heading { flex-direction: column; gap: 5px; }
+  .goal-plan-stats strong { font-size: 12px; }
+  .goal-milestones th, .goal-milestones td { padding: 8px 6px; }
+}
+
+.market-planner-card { margin-bottom: 20px; }
+.market-planner-content { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; padding: 15px 2px 1px; }
+.market-planner-content h2 { margin: 0 0 6px; color: #413b73; font-family: var(--serif); font-size: 21px; font-weight: 400; }
+.market-planner-content p { max-width: 500px; margin: 0; color: #78758d; font-size: 10px; line-height: 1.7; }
+.market-question-suggestions { display: grid; gap: 6px; }
+.market-question-suggestions button { padding: 7px 9px; border: 1px solid #e6deef; border-radius: 6px; background: #fffefe; color: #625a83; font-size: 9px; text-align: left; }
+.market-question-suggestions button:hover { border-color: #c9bce2; background: #f9f6ff; }
+.market-question-suggestions button:focus-visible { outline: 3px solid #9db9a4; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .market-planner-content { grid-template-columns: 1fr; gap: 12px; }
+  .market-question-suggestions { grid-template-columns: 1fr; }
 }

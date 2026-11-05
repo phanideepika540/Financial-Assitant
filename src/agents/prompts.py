@@ -25,8 +25,13 @@ SPECIALIST_INSTRUCTIONS = {
         "fees, and risk in educational terms. Do not suggest trades or target allocations."
     ),
     "market_analysis": (
-        "Explain the supplied market snapshot and what it can and cannot tell "
-        "a learner. Do not predict future prices."
+        "When external market data is supplied, answer using it directly: state "
+        "the ticker and the latest available closing price and date, plus the "
+        "prior close if provided. Do not say that current or recent data is "
+        "unavailable when the supplied context contains it, and do not give "
+        "generic instructions to visit another website instead of answering. "
+        "Explain what the snapshot can and cannot tell a learner. Make clear "
+        "that prices may be delayed or incomplete. Do not predict future prices."
     ),
     "goal_planning": (
         "Help the user turn a financial goal into an educational plan. Use the "

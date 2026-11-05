@@ -17,6 +17,8 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
+  Trash2,
   UserRound,
   Users,
   WalletCards,
@@ -37,10 +39,12 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   created_at?: string;
+  chart_data?: MarketChartData | null;
   streaming?: boolean;
   sources?: string[];
   citations?: Citation[];
   agent_label?: string;
+  retrieval_filter?: string[];
 };
 
 type Citation = {
@@ -49,6 +53,7 @@ type Citation = {
   publisher: string;
   source_url: string;
   reviewed_date: string;
+  specialist?: string;
 };
 
 type ChatResponse = {
@@ -58,12 +63,24 @@ type ChatResponse = {
   citations: Citation[];
   agent: string;
   agent_label: string;
+  retrieval_filter?: string[];
+  market_chart?: MarketChartData | null;
+};
+
+type MarketChartData = {
+  symbol: string;
+  dates: string[];
+  closes: number[];
+  retrieved_at: string;
+  provider: string;
 };
 
 type GoalRequest = {
   goal: string;
   time_horizon: string;
   target_amount: string;
+  current_savings: string;
+  monthly_contribution: string;
 };
 
 type Session = {
@@ -74,11 +91,12 @@ type Session = {
   history?: Message[];
 };
 
-type WorkspaceView = "learn" | "planning" | "portfolio" | "admin";
+type WorkspaceView = "learn" | "planning" | "market" | "portfolio" | "admin";
 
 const VIEW_LABELS: Record<WorkspaceView, string> = {
-  learn: "Learn & ask",
+  learn: "Ask & Learn",
   planning: "Goal planner",
+  market: "Market planner",
   portfolio: "Portfolio dashboard",
   admin: "Admin profiles",
 };
@@ -89,8 +107,6 @@ const initialProfile: Profile = {
   time_horizon: "",
   risk_comfort: "Not specified",
 };
-
-const VISIBLE_RECENT_MESSAGES = 4;
 
 function formatMessageTimestamp(timestamp?: string): string {
   if (!timestamp) return "";
@@ -194,6 +210,92 @@ async function streamChat(
   return result;
 }
 
+function MarketPriceChart({ data }: { data: MarketChartData }) {
+  const width = 640;
+  const height = 220;
+  const left = 58;
+  const right = 12;
+  const top = 18;
+  const bottom = 38;
+  const values = data.closes;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || Math.max(Math.abs(max) * 0.02, 1);
+  const low = min - range * 0.08;
+  const high = max + range * 0.08;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const x = (index: number) =>
+    left + (values.length > 1 ? (index / (values.length - 1)) * plotWidth : plotWidth / 2);
+  const y = (value: number) =>
+    top + ((high - value) / (high - low)) * plotHeight;
+  const path = values
+    .map((value, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(value)}`)
+    .join(" ");
+  const labelIndices = [...new Set([0, Math.floor((data.dates.length - 1) / 2), data.dates.length - 1])];
+  const formatPrice = (value: number) =>
+    new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+  const change = values.length > 1 ? values[values.length - 1] - values[0] : 0;
+  const changePercent = values.length > 1 && values[0] !== 0 ? (change / values[0]) * 100 : 0;
+
+  if (
+    values.length === 0 ||
+    values.length !== data.dates.length ||
+    values.some((value) => !Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  return (
+    <figure className="market-chart">
+      <figcaption className="market-chart-heading">
+        <span><strong>{data.symbol}</strong> recent closing prices</span>
+        <span className={change >= 0 ? "market-chart-change positive" : "market-chart-change negative"}>
+          {change >= 0 ? "+" : ""}{formatPrice(change)} ({changePercent >= 0 ? "+" : ""}{changePercent.toFixed(2)}%)
+        </span>
+      </figcaption>
+      <svg
+        className="market-chart-plot"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${data.symbol} recent closing prices, ranging from ${formatPrice(min)} to ${formatPrice(max)}. Change over period: ${changePercent.toFixed(2)} percent.`}
+      >
+        <defs>
+          <linearGradient id={`market-fill-${data.symbol}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#786bc2" stopOpacity=".2" />
+            <stop offset="100%" stopColor="#786bc2" stopOpacity=".01" />
+          </linearGradient>
+        </defs>
+        {[0, 1, 2, 3].map((step) => {
+          const value = high - ((high - low) * step) / 3;
+          const lineY = y(value);
+          return (
+            <g key={step}>
+              <line x1={left} x2={width - right} y1={lineY} y2={lineY} className="market-chart-grid" />
+              <text x={left - 8} y={lineY + 3} textAnchor="end" className="market-chart-axis">
+                {formatPrice(value)}
+              </text>
+            </g>
+          );
+        })}
+        <path d={`${path} L ${x(values.length - 1)} ${height - bottom} L ${x(0)} ${height - bottom} Z`} fill={`url(#market-fill-${data.symbol})`} />
+        <path d={path} className="market-chart-line" />
+        {values.map((value, index) => (
+          <circle key={`${data.dates[index]}-${index}`} cx={x(index)} cy={y(value)} r="3" className="market-chart-point">
+            <title>{data.dates[index]}: {formatPrice(value)}</title>
+          </circle>
+        ))}
+        {labelIndices.map((index) => (
+          <text key={index} x={x(index)} y={height - 12} textAnchor={index === 0 ? "start" : index === data.dates.length - 1 ? "end" : "middle"} className="market-chart-axis">
+            {data.dates[index]}
+          </text>
+        ))}
+      </svg>
+      <div className="market-chart-source">{data.provider} · Retrieved {formatMessageTimestamp(data.retrieved_at)}</div>
+    </figure>
+  );
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -204,19 +306,62 @@ function App() {
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [chatError, setChatError] = useState("");
+  const [historyNotice, setHistoryNotice] = useState("");
   const [profileNotice, setProfileNotice] = useState("");
   const [profileError, setProfileError] = useState("");
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(true);
   const [goal, setGoal] = useState("");
   const [horizon, setHorizon] = useState("");
   const [target, setTarget] = useState("");
+  const [currentSavings, setCurrentSavings] = useState("");
+  const [monthlyBudget, setMonthlyBudget] = useState("");
   const [goalError, setGoalError] = useState("");
   const [showScroll, setShowScroll] = useState(false);
   const chatEnd = useRef<HTMLDivElement>(null);
   const chatArea = useRef<HTMLDivElement>(null);
+  const targetAmount = Number(target);
+  const monthsAvailable = Number(horizon);
+  const savedAmount = currentSavings.trim() ? Number(currentSavings) : 0;
+  const monthlyBudgetAmount = monthlyBudget.trim() ? Number(monthlyBudget) : null;
+  const goalPlanReady =
+    target.trim() !== "" &&
+    horizon.trim() !== "" &&
+    Number.isFinite(targetAmount) &&
+    targetAmount > 0 &&
+    Number.isFinite(monthsAvailable) &&
+    monthsAvailable > 0 &&
+    Number.isFinite(savedAmount) &&
+    savedAmount >= 0 &&
+    (monthlyBudgetAmount === null ||
+      (Number.isFinite(monthlyBudgetAmount) && monthlyBudgetAmount >= 0));
+  const remainingAmount = goalPlanReady
+    ? Math.max(targetAmount - savedAmount, 0)
+    : 0;
+  const monthlyNeeded =
+    goalPlanReady && remainingAmount > 0
+      ? remainingAmount / monthsAvailable
+      : 0;
+  const goalProgress =
+    goalPlanReady
+      ? Math.min((savedAmount / targetAmount) * 100, 100)
+      : 0;
+  const projectedMonths =
+    goalPlanReady &&
+    monthlyBudgetAmount !== null &&
+    monthlyBudgetAmount > 0 &&
+    remainingAmount > 0
+      ? Math.ceil(remainingAmount / monthlyBudgetAmount)
+      : null;
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    }).format(amount);
 
   useEffect(() => {
     api<Session>("/api/session")
@@ -301,11 +446,31 @@ function App() {
     }
   }
 
+  async function clearHistory() {
+    if (busy || clearingHistory) return;
+    setChatError("");
+    setHistoryNotice("");
+    setClearingHistory(true);
+    try {
+      await api<void>("/api/chat/history", { method: "DELETE" });
+      setMessages([]);
+      setHistoryExpanded(false);
+      setShowScroll(false);
+      setHistoryNotice("Conversation history cleared.");
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Could not clear conversation history.");
+    } finally {
+      setClearingHistory(false);
+    }
+  }
+
   async function sendQuestion(text: string, goalRequest?: GoalRequest) {
     const clean = text.trim();
     if (!clean || busy) return;
     setBusy(true);
     setChatError("");
+    setHistoryNotice("");
+    setHistoryExpanded(true);
     const messageTimestamp = new Date().toISOString();
     setMessages((current) => [
       ...current,
@@ -350,6 +515,8 @@ function App() {
             sources: result.sources,
             citations: result.citations,
             agent_label: result.agent_label,
+            retrieval_filter: result.retrieval_filter,
+            chart_data: result.market_chart,
           },
         ];
       });
@@ -384,20 +551,20 @@ function App() {
       setGoalError("Add a goal to start a planning conversation.");
       return;
     }
-    setActiveView("learn");
     const summary = [
       `Help me think through: ${description}`,
-      horizon.trim() ? `Time horizon: ${horizon.trim()}` : "",
+      horizon.trim() ? `Time horizon: ${horizon.trim()} months` : "",
       target.trim() ? `Target amount: ${target.trim()}` : "",
+      currentSavings.trim() ? `Already saved: $${currentSavings.trim()}` : "",
+      monthlyBudget.trim() ? `Possible monthly contribution: $${monthlyBudget.trim()}` : "",
     ].filter(Boolean).join(" · ");
     void sendQuestion(summary, {
       goal: description,
-      time_horizon: horizon.trim(),
+      time_horizon: horizon.trim() ? `${horizon.trim()} months` : "",
       target_amount: target.trim(),
+      current_savings: currentSavings.trim(),
+      monthly_contribution: monthlyBudget.trim(),
     });
-    setGoal("");
-    setHorizon("");
-    setTarget("");
   }
 
   if (loading) {
@@ -473,9 +640,7 @@ function App() {
   }
 
   const username = session.username ?? "there";
-  const displayedMessages = messages
-    .map((message, index) => ({ message, index }))
-    .slice(historyExpanded ? 0 : -VISIBLE_RECENT_MESSAGES);
+  const displayedMessages = messages.map((message, index) => ({ message, index }));
 
   return (
     <div className="app-shell">
@@ -486,14 +651,17 @@ function App() {
         </a>
         <div className="workspace-label">YOUR WORKSPACE</div>
         <nav className="side-nav" aria-label="Main navigation">
-          <button type="button" className={`nav-item${activeView === "learn" ? " active" : ""}`} onClick={() => setActiveView("learn")} aria-current={activeView === "learn" ? "page" : undefined} aria-label="Learn and ask">
-            <MessageCircle size={17} /> Learn & ask {activeView === "learn" && <span className="nav-active-dot" />}
+          <button type="button" className={`nav-item${activeView === "portfolio" ? " active" : ""}`} onClick={() => setActiveView("portfolio")} aria-current={activeView === "portfolio" ? "page" : undefined} aria-label="Portfolio dashboard">
+            <WalletCards size={17} /> Portfolio dashboard {activeView === "portfolio" && <span className="nav-active-dot" />}
+          </button>
+          <button type="button" className={`nav-item${activeView === "learn" ? " active" : ""}`} onClick={() => setActiveView("learn")} aria-current={activeView === "learn" ? "page" : undefined} aria-label="Ask and learn">
+            <MessageCircle size={17} /> Ask & Learn {activeView === "learn" && <span className="nav-active-dot" />}
           </button>
           <button type="button" className={`nav-item${activeView === "planning" ? " active" : ""}`} onClick={() => setActiveView("planning")} aria-current={activeView === "planning" ? "page" : undefined} aria-label="Goal planner">
             <Compass size={17} /> Goal planner {activeView === "planning" && <span className="nav-active-dot" />}
           </button>
-          <button type="button" className={`nav-item${activeView === "portfolio" ? " active" : ""}`} onClick={() => setActiveView("portfolio")} aria-current={activeView === "portfolio" ? "page" : undefined} aria-label="Portfolio dashboard">
-            <WalletCards size={17} /> Portfolio dashboard {activeView === "portfolio" && <span className="nav-active-dot" />}
+          <button type="button" className={`nav-item${activeView === "market" ? " active" : ""}`} onClick={() => setActiveView("market")} aria-current={activeView === "market" ? "page" : undefined} aria-label="Market planner">
+            <TrendingUp size={17} /> Market planner {activeView === "market" && <span className="nav-active-dot" />}
           </button>
           {session.role === "admin" && (
             <button type="button" className={`nav-item${activeView === "admin" ? " active" : ""}`} onClick={() => setActiveView("admin")} aria-current={activeView === "admin" ? "page" : undefined} aria-label="Admin profiles">
@@ -569,58 +737,132 @@ function App() {
           {activeView === "planning" && <section className="planner-card" id="planning">
             <div className="planner-topline"><span className="planner-icon"><Compass size={17} /></span><span>THINKING AHEAD</span><span className="optional-pill">OPTIONAL</span></div>
             <div className="planner-layout">
-              <div className="planner-intro"><h2>Start with a goal.</h2><p>Big plans begin with a small question. Share what you’re thinking about, and we’ll help you explore it—without the pressure.</p><div className="planner-footnote"><ShieldCheck size={14} /> Approximate details are all you need.</div></div>
+              <div className="planner-intro"><h2>Start with a goal.</h2><p>Share what you’re working toward. Add a target and timeline to see a simple savings estimate, then explore the goal together.</p><div className="planner-footnote"><ShieldCheck size={14} /> Estimates use the details you provide.</div></div>
               <form className="goal-form" onSubmit={submitGoal}>
                 <label className="goal-field goal-main-field"><span>What are you planning for?</span><input value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="e.g. building an emergency fund" /></label>
                 <div className="goal-row">
-                  <label className="goal-field"><span>Time horizon <i>OPTIONAL</i></span><input value={horizon} onChange={(event) => setHorizon(event.target.value)} placeholder="e.g. 2 years" /></label>
-                  <label className="goal-field"><span>Target amount <i>OPTIONAL</i></span><input value={target} onChange={(event) => setTarget(event.target.value)} placeholder="e.g. $5,000" /></label>
+                  <label className="goal-field"><span>Time available (months) <i>OPTIONAL</i></span><input type="number" min="1" step="1" inputMode="numeric" value={horizon} onChange={(event) => setHorizon(event.target.value)} placeholder="e.g. 24" /></label>
+                  <label className="goal-field"><span>Target amount ($) <i>OPTIONAL</i></span><input type="number" min="0" step="0.01" inputMode="decimal" value={target} onChange={(event) => setTarget(event.target.value)} placeholder="e.g. 20,000" /></label>
+                </div>
+                <div className="goal-row">
+                  <label className="goal-field"><span>Already saved ($) <i>OPTIONAL</i></span><input type="number" min="0" step="0.01" inputMode="decimal" value={currentSavings} onChange={(event) => setCurrentSavings(event.target.value)} placeholder="e.g. 2,000" /></label>
+                  <label className="goal-field"><span>Monthly amount you can save ($) <i>OPTIONAL</i></span><input type="number" min="0" step="0.01" inputMode="decimal" value={monthlyBudget} onChange={(event) => setMonthlyBudget(event.target.value)} placeholder="e.g. 500" /></label>
                 </div>
                 {goalError && <p className="inline-error" role="alert">{goalError}</p>}
                 <button className="primary-button goal-submit" type="submit" disabled={busy}><span>Explore this goal</span>{busy ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}</button>
               </form>
+            </div>
+            {goalPlanReady && <div className="goal-plan" aria-live="polite">
+              <div className="goal-plan-heading">
+                <div><span className="goal-plan-kicker">YOUR SAVINGS SNAPSHOT</span><h3>A simple path to your goal</h3></div>
+                <span className="goal-plan-assumption">No investment growth assumed</span>
+              </div>
+              <div className="goal-plan-stats">
+                <div><span>Target</span><strong>{formatCurrency(targetAmount)}</strong></div>
+                <div><span>Saved so far</span><strong>{formatCurrency(savedAmount)}</strong></div>
+                <div><span>Still to save</span><strong>{formatCurrency(remainingAmount)}</strong></div>
+                <div><span>Monthly pace needed</span><strong>{formatCurrency(monthlyNeeded)}</strong></div>
+              </div>
+              <div className="goal-progress-label"><span>Progress</span><strong>{goalProgress.toFixed(0)}%</strong></div>
+              <div className="goal-progress-track" role="progressbar" aria-label="Goal savings progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(goalProgress)}>
+                <span style={{ width: `${goalProgress}%` }} />
+              </div>
+              {remainingAmount === 0 ? <p className="goal-plan-status">You’ve reached this savings target.</p> : <>
+                {monthlyBudgetAmount !== null && <p className="goal-plan-status">
+                  {monthlyBudgetAmount > 0 && projectedMonths !== null
+                    ? <>At {formatCurrency(monthlyBudgetAmount)} per month, the estimate is {projectedMonths} {projectedMonths === 1 ? "month" : "months"} to reach your goal{projectedMonths <= monthsAvailable ? "—within your timeline." : `—about ${projectedMonths - monthsAvailable} months beyond your timeline.`}</>
+                    : "Enter a monthly amount above zero to estimate how long your goal may take."}
+                  {monthlyBudgetAmount > 0 && monthlyBudgetAmount < monthlyNeeded && <> Your monthly amount is {formatCurrency(monthlyNeeded - monthlyBudgetAmount)} below the pace needed for this timeline.</>}
+                  {monthlyBudgetAmount > 0 && monthlyBudgetAmount >= monthlyNeeded && <> This amount meets the estimated monthly pace for your timeline.</>}
+                </p>}
+                <div className="goal-milestones">
+                  <h4>Milestones</h4>
+                  <div className="goal-table-wrap">
+                    <table>
+                      <thead><tr><th scope="col">Checkpoint</th><th scope="col">Target saved</th><th scope="col">By</th></tr></thead>
+                      <tbody>{[25, 50, 75, 100].map((percent) => {
+                        const milestoneAmount = targetAmount * percent / 100;
+                        const contributionToMilestone = Math.max(milestoneAmount - savedAmount, 0);
+                        const milestoneMonth = Math.ceil(monthsAvailable * contributionToMilestone / remainingAmount);
+                        return <tr key={percent}><th scope="row">{percent}% of goal</th><td>{formatCurrency(milestoneAmount)}</td><td>{contributionToMilestone === 0 ? "Already reached" : `Month ${milestoneMonth}`}</td></tr>;
+                      })}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </>}
+              <p className="goal-plan-disclaimer">Illustrative estimate only. It assumes regular contributions and no investment growth, fees, or changes to your goal.</p>
+            </div>}
+          </section>}
+
+          {activeView === "market" && <section className="planner-card market-planner-card" id="market-planner">
+            <div className="planner-topline"><span className="planner-icon"><TrendingUp size={17} /></span><span>MARKET PLANNER</span></div>
+            <div className="market-planner-content">
+              <div>
+                <h2>Make sense of the markets.</h2>
+                <p>Ask about market movements, quotes, or financial concepts. Ticker-specific questions can include a recent closing-price chart when market data is available. We explain context, not what to buy or sell.</p>
+              </div>
+              <div className="market-question-suggestions" aria-label="Suggested market questions">
+                <button type="button" onClick={() => setQuestion("What is the recent price history for ticker: AAPL?")}>Show an AAPL price chart</button>
+                <button type="button" onClick={() => setQuestion("How do interest rate changes affect bond prices?")}>How do rate changes affect bonds?</button>
+                <button type="button" onClick={() => setQuestion("What should I understand when comparing a stock's price movements over time?")}>Understand price movements</button>
+              </div>
             </div>
           </section>}
 
           {activeView === "portfolio" && <PortfolioDashboard />}
           {activeView === "admin" && session.role === "admin" && <AdminProfiles />}
 
-          {activeView === "learn" && <section className="conversation-section">
+          {(activeView === "learn" || activeView === "market") && <section className="conversation-section">
             <div className="section-heading">
-              <div><span className="conversation-kicker"><MessageCircle size={14} /> YOUR CONVERSATION</span><h2>What’s on your mind?</h2></div>
-              <span className="history-count">{messages.length > 0 ? `${messages.length} messages` : "A fresh start"}</span>
+              <div><span className="conversation-kicker">{activeView === "market" ? <TrendingUp size={14} /> : <MessageCircle size={14} />} {activeView === "market" ? "MARKET CONVERSATION" : "YOUR CONVERSATION"}</span><h2>{activeView === "market" ? "Your market questions." : "What’s on your mind?"}</h2></div>
+              <div className="conversation-actions">
+                <span className="history-count">{messages.length > 0 ? `${messages.length} messages` : "A fresh start"}</span>
+                {messages.length > 0 && (
+                  <button
+                    className="clear-history-button"
+                    type="button"
+                    onClick={() => void clearHistory()}
+                    disabled={busy || clearingHistory}
+                  >
+                    {clearingHistory ? <LoaderCircle className="spin" size={13} /> : <Trash2 size={13} />}
+                    {clearingHistory ? "Clearing…" : "Clear history"}
+                  </button>
+                )}
+              </div>
             </div>
+            {historyNotice && <p className="history-notice" role="status">{historyNotice}</p>}
             <div className="conversation-card">
-              <div className="chat-scroll" ref={chatArea}>
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  className="history-expand"
+                  onClick={() => setHistoryExpanded((expanded) => !expanded)}
+                  aria-expanded={historyExpanded}
+                  aria-controls="conversation-history"
+                >
+                  <ChevronDown
+                    size={14}
+                    className={historyExpanded ? "history-expand-icon expanded" : "history-expand-icon"}
+                  />
+                  {historyExpanded
+                    ? "Hide conversation history"
+                    : `Show conversation history (${messages.length} messages)`}
+                </button>
+              )}
+              <div className="chat-scroll" id="conversation-history" ref={chatArea}>
                 {messages.length === 0 ? (
                   <div className="empty-chat">
                     <span className="empty-icon"><MessageCircle size={21} /></span>
-                    <h3>A good question can change how things feel.</h3>
-                    <p>Ask about budgeting, saving, investing basics, taxes, or anything you’re curious about.</p>
-                    <div className="suggestion-row">
+                    <h3>{activeView === "market" ? "Start with a market question." : "A good question can change how things feel."}</h3>
+                    <p>{activeView === "market" ? "Ask for context on market news, prices, or how markets work. Answers are educational, not trade recommendations." : "Ask about budgeting, saving, investing basics, taxes, or anything you’re curious about."}</p>
+                    {activeView === "learn" && <div className="suggestion-row">
                       <button type="button" onClick={() => setQuestion("What is the difference between saving and investing?")}><Coins size={14} /> Saving vs. investing</button>
                       <button type="button" onClick={() => setQuestion("How does compound interest work?")}><Sparkles size={14} /> Compound interest</button>
                       <button type="button" onClick={() => setQuestion("What should I know about a Roth IRA?")}><WalletCards size={14} /> Roth IRA basics</button>
-                    </div>
+                    </div>}
                   </div>
-                ) : (
+                ) : historyExpanded ? (
                   <div className="message-list">
-                    {messages.length > VISIBLE_RECENT_MESSAGES && (
-                      <button
-                        type="button"
-                        className="history-expand"
-                        onClick={() => setHistoryExpanded((expanded) => !expanded)}
-                        aria-expanded={historyExpanded}
-                      >
-                        <ChevronDown
-                          size={14}
-                          className={historyExpanded ? "history-expand-icon expanded" : "history-expand-icon"}
-                        />
-                        {historyExpanded
-                          ? "Hide older messages"
-                          : `Show ${messages.length - VISIBLE_RECENT_MESSAGES} older messages`}
-                      </button>
-                    )}
                     {displayedMessages.map(({ message, index }) => (
                       <article key={`${index}-${message.role}`} className={`message ${message.role}`}>
                         <div className="message-avatar">{message.role === "assistant" ? <Leaf size={15} /> : username.slice(0, 1).toUpperCase()}</div>
@@ -640,17 +882,30 @@ function App() {
                           {message.role === "assistant" && message.streaming && !message.content ? (
                             <div className="thinking-dots" aria-label="Waiting for response"><i /><i /><i /></div>
                           ) : message.role === "assistant" ? (
-                            <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
+                            <>
+                              <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>
+                              {message.chart_data && <MarketPriceChart data={message.chart_data} />}
+                            </>
                           ) : <p className="user-message-text">{message.content}</p>}
-                          {((message.citations && message.citations.length > 0) || (message.sources && message.sources.length > 0)) && (
+                          {((message.citations && message.citations.length > 0) || (message.sources && message.sources.length > 0) || message.retrieval_filter !== undefined) && (
                             <details className="sources-details">
                               <summary><Bookmark size={13} /> Knowledge-base sources <ChevronDown size={13} /></summary>
+                              {message.retrieval_filter !== undefined && (
+                                <p className="retrieval-filter">
+                                  Metadata filter (specialist):
+                                  {" "}
+                                  {message.retrieval_filter.length
+                                    ? message.retrieval_filter.join(" OR ")
+                                    : "not applied (knowledge-base retrieval skipped)"}
+                                </p>
+                              )}
                               <ul>
                                 {message.citations?.map((citation) => (
                                   <li key={citation.article_id || citation.source_url}>
                                     <a href={citation.source_url} target="_blank" rel="noreferrer">
                                       {citation.title}{citation.publisher ? ` — ${citation.publisher}` : ""}<ArrowUpRight size={12} />
                                     </a>
+                                    {citation.specialist && <span className="citation-metadata"> specialist: {citation.specialist}</span>}
                                   </li>
                                 ))}
                                 {!message.citations?.length && message.sources?.map((source) => (
@@ -664,12 +919,12 @@ function App() {
                     ))}
                     <div ref={chatEnd} />
                   </div>
-                )}
+                ) : null}
               </div>
               {showScroll && <button className="scroll-bottom" type="button" onClick={() => chatEnd.current?.scrollIntoView({ behavior: "smooth" })}><ArrowDown size={15} /> Latest message</button>}
               {chatError && <div className="chat-error" role="alert"><CircleHelp size={15} /> {chatError}</div>}
               <form className="composer" onSubmit={submitChat}>
-                <textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendQuestion(question); } }} maxLength={6000} rows={2} placeholder="Ask a question about your finances…" aria-label="Ask a finance education question" />
+                <textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendQuestion(question); } }} maxLength={6000} rows={2} placeholder={activeView === "market" ? "Ask a question about markets…" : "Ask a question about your finances…"} aria-label={activeView === "market" ? "Ask a market education question" : "Ask a finance education question"} />
                 <div className="composer-bottom"><span>General education only · Never share sensitive account details</span><button className="send-button" type="submit" disabled={!question.trim() || busy} aria-label="Send question">{busy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}</button></div>
               </form>
             </div>

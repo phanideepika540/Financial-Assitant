@@ -189,6 +189,7 @@ def test_reference_formatter_and_citations_use_article_metadata():
             "publisher": "CFPB",
             "source_url": "https://example.gov/emergency",
             "reviewed_date": "2026-10-29",
+            "specialist": "goal_planning",
             "source": "https://example.gov/emergency",
         },
     )
@@ -205,5 +206,6 @@ def test_reference_formatter_and_citations_use_article_metadata():
             "publisher": "CFPB",
             "source_url": "https://example.gov/emergency",
             "reviewed_date": "2026-10-29",
+            "specialist": "goal_planning",
         }
     ]

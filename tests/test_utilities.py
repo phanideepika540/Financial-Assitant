@@ -20,10 +20,14 @@ def test_goal_planning_prompt_contains_goal_and_context():
         "build an emergency fund",
         "2 years",
         "$5,000",
+        "$1,000",
+        "$250",
     )
     assert "build an emergency fund" in question
     assert "2 years" in question
     assert "$5,000" in question
+    assert "$1,000" in question
+    assert "$250 per month" in question
 
 
 def test_goal_planning_requires_a_goal():

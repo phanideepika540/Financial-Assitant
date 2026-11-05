@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from src.core.errors import ProviderError
 from src.data.retry import retry_request
@@ -14,6 +15,10 @@ class MarketDataProvider:
         self.history_period = history_period
 
     def snapshot(self, symbol: str) -> str:
+        snapshot, _ = self.snapshot_with_chart(symbol)
+        return snapshot
+
+    def snapshot_with_chart(self, symbol: str) -> tuple[str, dict[str, Any]]:
         normalized = symbol.strip().upper()
         if not normalized or not normalized.replace(".", "").replace("-", "").isalnum():
             raise ProviderError("Enter a valid ticker symbol to request market data.")
@@ -43,8 +48,16 @@ class MarketDataProvider:
             ]
             if previous is not None:
                 lines.append(f"Prior available close: {previous:.2f}")
-            lines.append(f"Retrieved at: {datetime.now(timezone.utc).isoformat()}")
-            return "\n".join(lines)
+            retrieved_at = datetime.now(timezone.utc).isoformat()
+            lines.append(f"Retrieved at: {retrieved_at}")
+            chart = {
+                "symbol": normalized,
+                "dates": [timestamp.strftime("%Y-%m-%d") for timestamp in closes.index],
+                "closes": [float(value) for value in closes],
+                "retrieved_at": retrieved_at,
+                "provider": "Yahoo Finance via yfinance (unofficial; may be delayed)",
+            }
+            return "\n".join(lines), chart
         except ProviderError:
             raise
         except Exception as exc:

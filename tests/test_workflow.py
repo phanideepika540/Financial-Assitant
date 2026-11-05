@@ -71,6 +71,16 @@ def test_workflow_dispatches_each_specialist(question, expected_agent):
         def snapshot(self, symbol):
             return f"Test quote for {symbol}"
 
+        def snapshot_with_chart(self, symbol):
+            chart = {
+                "symbol": symbol,
+                "dates": ["2026-10-29", "2026-10-30"],
+                "closes": [100.0, 101.0],
+                "retrieved_at": "2026-10-30T12:00:00+00:00",
+                "provider": "Test market data",
+            }
+            return self.snapshot(symbol), chart
+
     class NewsProvider:
         def headlines(self):
             return "Test news headline"
@@ -93,7 +103,15 @@ def test_workflow_dispatches_each_specialist(question, expected_agent):
     result = workflow.invoke({"question": question})
 
     assert result["agent"] == expected_agent
-    assert result["answer"] == "General educational response."
+    if expected_agent == "market_analysis":
+        assert result["market_chart"]["symbol"] in {"AAPL", "MSFT"}
+        assert "**AAPL recent market snapshot:**" in result["answer"] or (
+            "**MSFT recent market snapshot:**" in result["answer"]
+        )
+        assert "latest available close was 101.00 on 2026-10-30" in result["answer"]
+        assert "General educational response." in result["answer"]
+    else:
+        assert result["answer"] == "General educational response."
     if expected_agent == "news_synthesizer":
         assert result["sources"] == []
     else:
@@ -155,6 +173,11 @@ def test_workflow_runs_two_specialists_and_synthesizes_their_responses():
     assert result["agent"] == "portfolio_analysis"
     assert result["answer"] == "Combined portfolio and tax explanation."
     assert result["sources"] == ["source-1.md"]
+    assert result["retrieval_filter"] == [
+        "portfolio_analysis",
+        "tax_education",
+        "general",
+    ]
     assert result["citations"][0]["title"] == "source-1.md"
     assert store.search_count == 1
     assert store.search_filter == {
@@ -226,6 +249,7 @@ def test_news_specialist_searches_web_and_returns_result_urls():
     )
     assert search_provider.max_results == 3
     assert result["sources"] == ["https://example.com/pega-news"]
+    assert result["retrieval_filter"] == []
 
 
 def test_google_news_search_uses_generic_financial_context_terms():

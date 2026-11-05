@@ -16,6 +16,7 @@ from src.rag.knowledge_base import (
     format_citations,
     format_references,
     retrieve_references,
+    retrieval_specialist_values,
 )
 from src.data.web_search import format_search_results
 
@@ -59,6 +60,8 @@ class AssistantState(TypedDict, total=False):
     references: str
     sources: list[str]
     citations: list[dict[str, str]]
+    retrieval_filter: list[str]
+    market_chart: dict[str, Any]
     external_context: str
     answer: str
     agent_results: Annotated[list[dict[str, Any]], add]
@@ -124,6 +127,7 @@ def build_workflow(
             "references": references,
             "sources": sources,
             "citations": format_citations(documents),
+            "retrieval_filter": retrieval_specialist_values(state["agents"]),
         }
 
     def skip_retrieval(_: AssistantState) -> dict[str, Any]:
@@ -131,6 +135,7 @@ def build_workflow(
             "references": "No knowledge-base references were needed for this news search.",
             "sources": [],
             "citations": [],
+            "retrieval_filter": [],
         }
 
     def make_specialist(agent_name: str):
@@ -140,12 +145,18 @@ def build_workflow(
         def specialist(state: AssistantState) -> dict[str, Any]:
             external_context = "No external data was requested for this response."
             specialist_sources = list(state["sources"])
+            market_chart = None
             if agent_name == "market_analysis":
                 symbol = _extract_ticker(state["question"])
                 if symbol is None:
                     external_context = "No unambiguous ticker symbol was found; ask the user to provide one."
                 else:
-                    external_context = market_provider.snapshot(symbol)
+                    if hasattr(market_provider, "snapshot_with_chart"):
+                        external_context, market_chart = market_provider.snapshot_with_chart(
+                            symbol
+                        )
+                    else:
+                        external_context = market_provider.snapshot(symbol)
             elif agent_name == "news_synthesizer":
                 if web_search_provider is None:
                     external_context = news_provider.headlines()
@@ -175,20 +186,44 @@ def build_workflow(
                 }
             )
             content = response.content if isinstance(response, AIMessage) else str(response)
+            if market_chart is not None:
+                closes = market_chart["closes"]
+                latest_close = closes[-1]
+                latest_date = market_chart["dates"][-1]
+                snapshot_summary = (
+                    f"**{market_chart['symbol']} recent market snapshot:** "
+                    f"latest available close was {latest_close:.2f} on "
+                    f"{latest_date} ({market_chart['provider']})."
+                )
+                if len(closes) > 1:
+                    prior_close = closes[-2]
+                    change = latest_close - prior_close
+                    change_percent = change / prior_close * 100 if prior_close else 0
+                    snapshot_summary += (
+                        f" The prior close was {prior_close:.2f}, a change of "
+                        f"{change:+.2f} ({change_percent:+.2f}%)."
+                    )
+                content = f"{snapshot_summary}\n\n{content}"
             result = {
                 "agent": agent_name,
                 "answer": content,
                 "sources": list(dict.fromkeys(specialist_sources)),
                 "citations": state["citations"],
             }
+            if market_chart is not None:
+                result["market_chart"] = market_chart
             if len(state["agents"]) == 1:
-                return {
+                final = {
                     "answer": content,
                     "sources": list(dict.fromkeys(specialist_sources)),
                     "citations": state["citations"],
+                    "retrieval_filter": state.get("retrieval_filter", []),
                     "agent": agent_name,
                     "agents": [agent_name],
                 }
+                if market_chart is not None:
+                    final["market_chart"] = market_chart
+                return final
             return {"agent_results": [result]}
 
         return specialist
@@ -226,13 +261,21 @@ def build_workflow(
             }
         )
         content = response.content if isinstance(response, AIMessage) else str(response)
-        return {
+        final = {
             "answer": content,
             "sources": sources,
             "citations": citations,
+            "retrieval_filter": state.get("retrieval_filter", []),
             "agent": state["agent"],
             "agents": state["agents"],
         }
+        market_result = next(
+            (result for result in ordered_results if result.get("market_chart")),
+            None,
+        )
+        if market_result is not None:
+            final["market_chart"] = market_result["market_chart"]
+        return final
 
     def after_specialists(state: AssistantState) -> str:
         return "synthesize" if len(state["agents"]) > 1 else END

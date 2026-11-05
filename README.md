@@ -12,13 +12,20 @@ conversation history, and persisted user profiles.
 
 ## Features
 
+- The workspace navigation puts **Portfolio dashboard** first, followed by
+  **Ask & Learn**, **Goal planner**, and **Market planner**. The learning
+  profile starts expanded and can be collapsed.
 - Finance Q&A, portfolio education, market context, goal planning, news
   summaries, and US tax education, selected by a LangGraph router.
 - Cross-domain questions can use two specialists concurrently, with one
   synthesized answer and combined source references; straightforward questions
   keep the single-specialist path.
-- A visible goal-planning form in the app for starting and testing an
-  educational planning conversation.
+- A goal planner with an educational conversation and a live savings snapshot:
+  monthly pace, progress, monthly-budget timeline, and milestones. Calculations
+  assume regular contributions and no investment growth or fees.
+- A Market planner for ticker questions, with recent closing prices displayed
+  as a chart alongside the written explanation when yfinance data is available.
+  Chart data is saved with the conversation history.
 - A portfolio dashboard for manually entered holdings, with asset-class,
   sector, and position-weight visualizations. Entries are saved per account
   and are not linked to brokerage accounts.
@@ -35,13 +42,63 @@ conversation history, and persisted user profiles.
   its source for current information.
 - Market snapshots via yfinance and company-specific financial-news search via Tavily.
 - Accounts, hashed passwords, saved learning profile, and chat history in a
-  relational database. PostgreSQL is supported for deployment; SQLite remains
-  the zero-setup local development default.
+  relational database, with a UI action to clear the signed-in user's history.
+  PostgreSQL is supported for deployment; SQLite remains the zero-setup local
+  development default.
+- Conversation history is collapsed by default and can be expanded from the
+  chat area; clearing it removes the signed-in user's saved messages.
 - Configuration in `config.yaml`; API secrets are read from environment.
 - Responsive React interface served by a FastAPI backend. The Python workflow,
   database accounts, profile, chat history, and data providers stay on the server.
 - Chat and goal answers stream into the interface as the model generates them;
   JSON API endpoints remain available for non-streaming clients.
+
+## Request flow
+
+```mermaid
+flowchart TD
+    User[User] --> UI[React web app]
+    UI --> API[FastAPI API]
+    API --> Session[Validate session and load profile/history]
+    Session <--> DB[(PostgreSQL or local SQLite)]
+    Session --> Router[LangGraph specialist router]
+    Router --> Retrieval[Retrieve educational context when relevant]
+    Retrieval <--> Chroma[(Chroma knowledge base)]
+    Retrieval --> Specialists[Run one or two specialists with configured chat model]
+    Specialists --> MarketData[yfinance market data]
+    Specialists --> Tavily[Tavily search when relevant]
+    Specialists --> Branch{One or two specialists?}
+    Branch -->|One| Answer[Stream answer and sources]
+    Branch -->|Two| Synthesis[Synthesize specialist responses]
+    Synthesis --> Answer
+    Answer --> UI
+    Answer --> DB
+    Router -. optional LangSmith trace .-> LangSmith[LangSmith]
+    Specialists -. optional LangSmith trace .-> LangSmith
+
+    Claude[Claude Desktop] --> MCP[Local finance-web-search MCP server]
+    MCP --> SearchTool[Traced web_search tool]
+    SearchTool --> Tavily
+    SearchTool -. optional LangSmith trace .-> LangSmith
+    Tavily --> MCP
+    MCP --> Claude
+```
+
+The web app and Claude Desktop use separate request paths. The app routes
+questions through FastAPI and LangGraph; Claude calls the standalone MCP search
+tool directly. LangSmith tracing is enabled when `LANGSMITH_API_KEY` is
+configured and `LANGSMITH_TRACING` is not set to `false`.
+
+The app also keeps a process-local, 15-minute cache of completed responses for
+repeated standalone questions, scoped to the signed-in user and their learning
+profile. Cache hits bypass routing, retrieval, and model calls. Follow-up
+questions and requests for current news or market data are not cached. Restarting
+the API clears this cache.
+
+For temporary retrieval debugging, set `SHOW_RETRIEVAL_METADATA=true` in
+`.env` and restart the API. The **Knowledge-base sources** section then shows
+the specialist metadata filter used and each retrieved article's specialist
+tag. Leave this unset or set it to `false` to hide the diagnostic in production.
 
 ## Quick start
 
@@ -121,8 +178,11 @@ operators.
 ### MCP web-search server for Claude Desktop
 
 The same Tavily search provider is available as a local stdio MCP server. Install
-the project requirements, set `TAVILY_API_KEY` in the Claude Desktop MCP server
-environment (or the process environment), then add a server entry to
+the project requirements and set `TAVILY_API_KEY` in the project `.env` (the
+server loads it at startup) or in the Claude Desktop MCP server environment.
+To trace MCP searches, also set `LANGSMITH_API_KEY` and optionally
+`LANGSMITH_PROJECT` in `.env`; tracing is enabled when the key is present unless
+`LANGSMITH_TRACING=false`. Then add a server entry to
 `%APPDATA%\Claude\claude_desktop_config.json`. Replace the paths with your
 project and Python virtual-environment paths:
 
@@ -131,10 +191,7 @@ project and Python virtual-environment paths:
   "mcpServers": {
     "finance-web-search": {
       "command": "C:\\path\\to\\project\\.venv\\Scripts\\python.exe",
-      "args": ["C:\\path\\to\\project\\src\\mcp_server.py"],
-      "env": {
-        "TAVILY_API_KEY": "your-tavily-api-key"
-      }
+      "args": ["C:\\path\\to\\project\\src\\mcp_server.py"]
     }
   }
 }
@@ -143,8 +200,10 @@ project and Python virtual-environment paths:
 Restart Claude Desktop after saving the configuration. The server exposes
 `web_search(query, max_results, topic)`; `topic` can be `news`, `finance`, or
 `general`. Results include source titles, dates, summaries, and URLs. Keep the
-API key private. The app's graph calls the same
-provider directly; it does not spawn an MCP subprocess for each chat request.
+API keys private. LangSmith traces include the search query and returned results;
+review your data-handling requirements before enabling external tracing. The
+app's graph calls the same provider directly; it does not spawn an MCP
+subprocess for each chat request.
 
 ## Run with Docker
 
@@ -166,6 +225,11 @@ the FastAPI container; no separate Vite server is needed. The named Docker volum
 the replaceable container. When `DATABASE_URL` points to PostgreSQL, account
 and conversation data are stored there instead. The container exposes port
 `8000`, runs as a non-root user, and provides `/api/health` for health checks.
+The image includes the market chart UI, API, and database schema changes
+present when `docker build` runs. Rebuild the image and recreate the container
+after changing application code; keep the named data volume when replacing a
+container. Existing SQLite and PostgreSQL databases add the optional market
+chart-history column when the API starts.
 
 For AWS, configure the service to listen on container port `8000` and provide
 `DATABASE_URL` for RDS PostgreSQL, `OPENAI_API_KEY`, a stable `SESSION_SECRET`,
@@ -221,12 +285,19 @@ profiles, or messages. After migration, start the app with the same
 `DATABASE_URL`. Leave the old SQLite file backed up until you have verified
 sign-in and chat history against PostgreSQL.
 
-To try goal planning, use the **Start with a goal** form on the main screen.
-Enter a goal (optionally include an approximate time horizon and target amount)
-and select **Explore this goal**. The assistant response labels the
-specialist it used. Alternatively, ask in chat, for example: “Help me think
-through saving for a home over the next five years.” Keep any amounts
-approximate and never enter account numbers or credentials.
+To try goal planning, select **Goal planner**, enter a goal, and optionally
+provide a target amount and time available in months. Add current savings and a
+monthly amount to see progress, the estimated monthly pace, and milestones
+update as you edit the values. Select **Explore this goal** to start a related
+educational conversation. Estimates do not account for interest, fees,
+inflation, or changes in contributions.
+
+To try a market chart, select **Market planner**, use **Show an AAPL price
+chart**, then submit the question. A chart appears with the response when the
+market provider returns recent closing-price data. The chart may be delayed,
+incomplete, or unavailable; a market response without an unambiguous ticker
+does not have a ticker price chart. Market and goal responses are educational,
+not personalized financial advice. Never enter account numbers or credentials.
 
 To run the tests and build the frontend:
 

@@ -11,6 +11,8 @@ def build_goal_planning_question(
     goal: str,
     time_horizon: str = "",
     target_amount: str = "",
+    current_savings: str = "",
+    monthly_contribution: str = "",
 ) -> str:
     cleaned_goal = goal.strip()
     if not cleaned_goal:
@@ -21,6 +23,12 @@ def build_goal_planning_question(
         details.append(f"My approximate time horizon is {time_horizon.strip()}.")
     if target_amount.strip():
         details.append(f"My approximate target amount is {target_amount.strip()}.")
+    if current_savings.strip():
+        details.append(f"I have already saved approximately {current_savings.strip()}.")
+    if monthly_contribution.strip():
+        details.append(
+            f"I may be able to contribute approximately {monthly_contribution.strip()} per month."
+        )
     details.append(
         "Explain relevant planning considerations and questions to think about. "
         "Keep this general education: do not recommend specific investments or "

@@ -180,11 +180,15 @@ def retrieve_references(
 ) -> list[Document]:
     if not specialists:
         return store.similarity_search(query, k=limit)
-    allowed_specialists = list(dict.fromkeys([*specialists, "general"]))
+    allowed_specialists = retrieval_specialist_values(specialists)
     metadata_filter = {
         "$or": [{"specialist": specialist} for specialist in allowed_specialists]
     }
     return store.similarity_search(query, k=limit, filter=metadata_filter)
+
+
+def retrieval_specialist_values(specialists: list[str]) -> list[str]:
+    return list(dict.fromkeys([*specialists, "general"]))
 
 
 def format_references(documents: list[Document]) -> tuple[str, list[str]]:
@@ -227,5 +231,6 @@ def format_citations(documents: list[Document]) -> list[dict[str, str]]:
             "publisher": str(metadata.get("publisher", "")),
             "source_url": source_url,
             "reviewed_date": str(metadata.get("reviewed_date", "")),
+            "specialist": str(metadata.get("specialist", "")),
         }
     return list(citations.values())

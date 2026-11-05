@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 import sqlite3
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    delete,
     func,
     inspect,
     insert,
@@ -77,6 +79,7 @@ _MESSAGES = Table(
     ),
     Column("role", String(16), nullable=False),
     Column("content", Text, nullable=False),
+    Column("chart_data", Text, nullable=True),
     Column(
         "created_at", DateTime(timezone=True), nullable=False, server_default=func.now()
     ),
@@ -156,6 +159,21 @@ class Database:
                         "ALTER TABLE users ADD COLUMN role "
                         "VARCHAR(16) NOT NULL DEFAULT 'user'"
                     )
+                )
+        if self.engine.dialect.name == "postgresql":
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS "
+                        "chart_data TEXT"
+                    )
+                )
+        elif "chart_data" not in {
+            column["name"] for column in inspect(self.engine).get_columns("messages")
+        }:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE messages ADD COLUMN chart_data TEXT")
                 )
 
     def register(self, username: str, password: str) -> int:
@@ -258,7 +276,13 @@ class Database:
             if result.rowcount != 1:
                 raise AccountError("Account profile was not found.")
 
-    def save_message(self, user_id: int, role: str, content: str) -> None:
+    def save_message(
+        self,
+        user_id: int,
+        role: str,
+        content: str,
+        chart_data: dict[str, Any] | None = None,
+    ) -> None:
         if role not in {"user", "assistant"}:
             raise ValueError("role must be 'user' or 'assistant'")
         if not content.strip():
@@ -269,7 +293,14 @@ class Database:
                     user_id=user_id,
                     role=role,
                     content=content,
+                    chart_data=json.dumps(chart_data) if chart_data is not None else None,
                 )
+            )
+
+    def clear_messages(self, user_id: int) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                delete(_MESSAGES).where(_MESSAGES.c.user_id == user_id)
             )
 
     def recent_messages(self, user_id: int, limit: int = 12) -> list[dict[str, Any]]:
@@ -279,6 +310,7 @@ class Database:
             select(
                 _MESSAGES.c.role,
                 _MESSAGES.c.content,
+                _MESSAGES.c.chart_data,
                 _MESSAGES.c.created_at,
             )
             .where(_MESSAGES.c.user_id == user_id)
@@ -291,6 +323,9 @@ class Database:
             {
                 "role": row["role"],
                 "content": row["content"],
+                "chart_data": (
+                    json.loads(row["chart_data"]) if row["chart_data"] else None
+                ),
                 "created_at": row["created_at"].isoformat(),
             }
             for row in reversed(rows)

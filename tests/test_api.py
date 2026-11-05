@@ -113,6 +113,61 @@ def test_chat_requires_authentication(monkeypatch, tmp_path):
     assert response.status_code == 401
 
 
+def test_clear_chat_history_deletes_only_current_users_messages_and_cache(
+    monkeypatch,
+    tmp_path,
+):
+    client, database = _client(monkeypatch, tmp_path)
+    assert client.delete("/api/chat/history").status_code == 401
+
+    client.post(
+        "/api/auth/register",
+        json={
+            "username": "history_owner",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    workflow_calls = 0
+
+    class Workflow:
+        def invoke(self, state):
+            nonlocal workflow_calls
+            workflow_calls += 1
+            return {
+                "answer": "A general educational answer.",
+                "agent": "finance_qa",
+                "sources": [],
+            }
+
+    monkeypatch.setattr(api, "get_workflow", lambda: Workflow())
+    question = {"question": "Explain compound interest"}
+    assert client.post("/api/chat", json=question).status_code == 200
+    assert client.post("/api/chat", json=question).status_code == 200
+    assert workflow_calls == 1
+
+    second_client = TestClient(api.app)
+    second_client.post(
+        "/api/auth/register",
+        json={
+            "username": "other_history",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    assert second_client.post("/api/chat", json=question).status_code == 200
+    other_user_id = database.authenticate("other_history", "a-very-long-password")
+    assert other_user_id is not None
+
+    response = client.delete("/api/chat/history")
+
+    assert response.status_code == 204
+    assert client.get("/api/session").json()["history"] == []
+    assert len(database.recent_messages(other_user_id)) == 2
+    assert client.post("/api/chat", json=question).status_code == 200
+    assert workflow_calls == 3
+
+
 def test_portfolio_requires_authentication(monkeypatch, tmp_path):
     client, _ = _client(monkeypatch, tmp_path)
 
@@ -209,6 +264,7 @@ def test_health_endpoint():
 
 
 def test_chat_returns_and_persists_assistant_response(monkeypatch, tmp_path):
+    monkeypatch.delenv("SHOW_RETRIEVAL_METADATA", raising=False)
     client, _ = _client(monkeypatch, tmp_path)
     client.post(
         "/api/auth/register",
@@ -253,6 +309,145 @@ def test_chat_returns_and_persists_assistant_response(monkeypatch, tmp_path):
     assert all(message["created_at"] for message in history)
 
 
+def test_market_chart_is_returned_and_saved_with_chat_history(monkeypatch, tmp_path):
+    client, _ = _client(monkeypatch, tmp_path)
+    client.post(
+        "/api/auth/register",
+        json={
+            "username": "market_chart_user",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    chart = {
+        "symbol": "AAPL",
+        "dates": ["2026-10-29", "2026-10-30"],
+        "closes": [100.0, 101.0],
+        "retrieved_at": "2026-10-30T12:00:00+00:00",
+        "provider": "Test market data",
+    }
+
+    class Workflow:
+        def invoke(self, state):
+            return {
+                "answer": "AAPL recently closed at 101.",
+                "agent": "market_analysis",
+                "sources": [],
+                "market_chart": chart,
+            }
+
+    monkeypatch.setattr(api, "get_workflow", lambda: Workflow())
+    response = client.post(
+        "/api/chat", json={"question": "Ticker: AAPL market chart test"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["market_chart"] == chart
+    history = client.get("/api/session").json()["history"]
+    assert history[-1]["chart_data"] == chart
+
+
+def test_chat_reuses_cached_answer_for_same_user_and_question(monkeypatch, tmp_path):
+    client, _ = _client(monkeypatch, tmp_path)
+    client.post(
+        "/api/auth/register",
+        json={
+            "username": "cache_user",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    calls = 0
+
+    class Workflow:
+        def invoke(self, state):
+            nonlocal calls
+            calls += 1
+            return {
+                "answer": "Compound interest earns interest on prior interest.",
+                "agent": "finance_qa",
+                "sources": ["https://example.com/interest"],
+                "citations": [],
+            }
+
+    monkeypatch.setattr(api, "get_workflow", lambda: Workflow())
+    first = client.post("/api/chat", json={"question": "Explain compound interest"})
+    second = client.post(
+        "/api/chat",
+        json={"question": "  EXPLAIN   COMPOUND INTEREST  "},
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert second.json()["answer"] == first.json()["answer"]
+    assert calls == 1
+    assert len(client.get("/api/session").json()["history"]) == 4
+
+    profile_update = client.patch(
+        "/api/profile",
+        json={
+            "learning_level": "Intermediate",
+            "goal": "Learn about investing",
+            "time_horizon": "",
+            "risk_comfort": "Not specified",
+        },
+    )
+    assert profile_update.status_code == 200
+    client.post("/api/chat", json={"question": "Explain compound interest"})
+    assert calls == 2
+
+    other_client = TestClient(api.app)
+    other_client.post(
+        "/api/auth/register",
+        json={
+            "username": "other_cache_user",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    other_client.post("/api/chat", json={"question": "Explain compound interest"})
+    assert calls == 3
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What is the latest financial news?",
+        "What does that mean?",
+    ],
+)
+def test_chat_does_not_cache_dynamic_or_follow_up_questions(
+    monkeypatch,
+    tmp_path,
+    question,
+):
+    client, _ = _client(monkeypatch, tmp_path)
+    client.post(
+        "/api/auth/register",
+        json={
+            "username": "uncached_user",
+            "password": "a-very-long-password",
+            "confirmation": "a-very-long-password",
+        },
+    )
+    calls = 0
+
+    class Workflow:
+        def invoke(self, state):
+            nonlocal calls
+            calls += 1
+            return {
+                "answer": f"Response {calls}.",
+                "agent": "finance_qa",
+                "sources": [],
+            }
+
+    monkeypatch.setattr(api, "get_workflow", lambda: Workflow())
+    client.post("/api/chat", json={"question": question})
+    client.post("/api/chat", json={"question": question})
+
+    assert calls == 2
+
+
 def test_chat_labels_all_selected_specialists(monkeypatch, tmp_path):
     client, _ = _client(monkeypatch, tmp_path)
     client.post(
@@ -283,6 +478,7 @@ def test_chat_labels_all_selected_specialists(monkeypatch, tmp_path):
 
 
 def test_streaming_chat_sends_tokens_and_persists_final_answer(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOW_RETRIEVAL_METADATA", "true")
     client, database = _client(monkeypatch, tmp_path)
     user_id = database.register("stream_user", "a-very-long-password")
     client.post(
@@ -315,6 +511,7 @@ def test_streaming_chat_sends_tokens_and_persists_final_answer(monkeypatch, tmp_
                     "citations": [],
                     "agent": "finance_qa",
                     "agents": ["finance_qa"],
+                    "retrieval_filter": ["finance_qa", "general"],
                 }
             }
 
@@ -340,7 +537,20 @@ def test_streaming_chat_sends_tokens_and_persists_final_answer(monkeypatch, tmp_
     completion = next(payload for name, payload in events if name == "done")
     assert completion["answer"] == "A bond is a loan."
     assert completion["agent_label"] == "Finance Q&A"
+    assert completion["retrieval_filter"] == ["finance_qa", "general"]
     assert database.recent_messages(user_id)[-1]["content"] == "A bond is a loan."
+    repeated_response = client.post(
+        "/api/chat/stream",
+        json={"question": "Explain bonds"},
+    )
+    repeated_events = [
+        json.loads(next(line[6:] for line in block.splitlines() if line.startswith("data: ")))
+        for block in repeated_response.text.strip().split("\n\n")
+    ]
+    assert [event["content"] for event in repeated_events if "content" in event] == [
+        "A bond is a loan."
+    ]
+    assert repeated_events[-1]["answer"] == "A bond is a loan."
 
 
 def test_goal_request_uses_existing_prompt_builder(monkeypatch, tmp_path):
@@ -358,6 +568,8 @@ def test_goal_request_uses_existing_prompt_builder(monkeypatch, tmp_path):
         def invoke(self, state):
             assert "build an emergency fund" in state["question"]
             assert "2 years" in state["question"]
+            assert "$1,000" in state["question"]
+            assert "$250 per month" in state["question"]
             return {
                 "answer": "Start by exploring your savings options.",
                 "agent": "goal_planning",
@@ -371,6 +583,8 @@ def test_goal_request_uses_existing_prompt_builder(monkeypatch, tmp_path):
             "goal": "build an emergency fund",
             "time_horizon": "2 years",
             "target_amount": "$5,000",
+            "current_savings": "$1,000",
+            "monthly_contribution": "$250",
         },
     )
 

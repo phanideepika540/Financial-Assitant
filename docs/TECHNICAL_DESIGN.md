@@ -11,7 +11,7 @@ All six requested domains are included.
 ## Architecture
 
 ```text
-React + TypeScript UI (chat, goal planner, portfolio dashboard)
+React + TypeScript UI (Ask & Learn, goal planner, market planner, portfolio dashboard)
   └─ FastAPI API with signed session cookie
        ├─ Account/profile/chat/portfolio persistence (PostgreSQL in deployment; SQLite locally)
        └─ LangGraph workflow
@@ -55,7 +55,9 @@ during manual testing.
    risk comfort, and manually enter portfolio holdings. Profile, holdings, and
    timestamped chat turns are stored in the configured relational database;
    recent chat turns are included in the next request and displayed with their
-   local date and time.
+      local date and time. Market-chart data is stored with its assistant message
+      so charts can be restored from conversation history. Existing databases add
+      the nullable chart-data column during initialization.
    New accounts receive the `user` role. Existing accounts can be promoted to
    `admin` through `python -m src.data.manage_admin <username>`. Admins can read
    all users' learning profiles; regular users can access only their own
@@ -75,6 +77,10 @@ during manual testing.
    `Retry-After` support. Rate limits are not immediately retried; they are
    surfaced as clear errors so the app does not worsen provider throttling.
    Provider failures are logged rather than replaced with fabricated data.
+   For ticker-based market requests, yfinance closing prices are also returned
+   as structured chart data; the UI shows the recent-price chart and a summary
+   of the latest available close alongside the model's explanation. The chart
+   is omitted if no unambiguous ticker or usable market history is available.
 5. The specialist prompts ask the model to explain concepts in plain language,
    distinguish facts from uncertainty, use provided references, avoid
    individualized recommendations, and say when evidence is insufficient.
@@ -82,8 +88,10 @@ during manual testing.
    supported distinctions, and combines their source labels. A single
    specialist response skips synthesis to avoid an unnecessary model call.
 7. Chat and goal responses stream specialist answer tokens to the React client
-   over Server-Sent Events, followed by source metadata when the answer is
-   complete. The completed exchange is then persisted. The FastAPI server also
+   over Server-Sent Events, followed by source metadata and any market-chart
+   data when the answer is complete. The completed exchange and chart data are
+   then persisted. Conversation history is collapsed by default in the UI and
+   can be expanded or cleared by the signed-in user. The FastAPI server also
    keeps the JSON endpoints and serves the production Vite build. In local
    development, Vite proxies `/api` requests to FastAPI.
 
@@ -110,6 +118,13 @@ these fields. Retrieval filters by the selected specialist(s), while also
 including articles classified as general. Citations returned to the UI are
 deduplicated by article ID and display title, publisher, and source URL.
 
+The goal planner calculates a target-progress percentage, remaining amount,
+straight-line monthly contribution, and contribution milestones from the
+values entered by the user. An optional monthly contribution estimates the
+number of months to reach the goal. These are arithmetic illustrations: they
+assume regular contributions and no investment growth, fees, or changes in
+contribution.
+
 The Chroma collection synchronizes added, updated, and removed articles on
 startup using article IDs and content hashes. To fully rebuild the collection,
 stop the API and run `python -m src.rag.reindex_knowledge_base --yes`. This
@@ -131,7 +146,9 @@ source control and restrict filesystem access.
 - Portfolio and goal discussions are educational prompts, not personalized
   allocations or guarantees.
 - Market data from yfinance is unofficial and can be delayed, inaccurate, or
-  unavailable. RSS headlines are not a complete news feed.
+  unavailable. Market charts show recent closing prices only; they are not
+  real-time quotes, forecasts, or trade signals. RSS headlines are not a
+  complete news feed.
 - Model output and RAG citations can be incorrect or incomplete. Verify
   consequential claims with primary sources and qualified professionals.
 - Local SQLite authentication is a development convenience, not a hardened
