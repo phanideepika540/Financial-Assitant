@@ -374,7 +374,7 @@ function holdingPieGradientLabel(entries: { label: string; value: number }[], to
 }
 
 function makeDonutGradient(entries: { value: number }[], total: number): string {
-  if (total <= 0) return "#e9e9e1";
+  if (total <= 0) return "var(--line)";
   let start = 0;
   const slices = entries.map((entry, index) => {
     const end = start + (entry.value / total) * 100;
