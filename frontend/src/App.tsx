@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { ThemeToggle } from "./ThemeToggle";
 import {
+  ArrowLeft,
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
@@ -26,6 +28,10 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AdminProfiles from "./AdminProfiles";
+import DocumentationPage, {
+  DocumentationMenu,
+  type DocumentationSection,
+} from "./Documentation";
 import PortfolioDashboard from "./PortfolioDashboard";
 
 type Profile = {
@@ -91,7 +97,7 @@ type Session = {
   history?: Message[];
 };
 
-type WorkspaceView = "learn" | "planning" | "market" | "portfolio" | "admin";
+type WorkspaceView = "learn" | "planning" | "market" | "portfolio" | "admin" | "docs";
 
 const VIEW_LABELS: Record<WorkspaceView, string> = {
   learn: "Ask & Learn",
@@ -99,6 +105,7 @@ const VIEW_LABELS: Record<WorkspaceView, string> = {
   market: "Market planner",
   portfolio: "Portfolio dashboard",
   admin: "Admin profiles",
+  docs: "Documentation",
 };
 
 const initialProfile: Profile = {
@@ -300,6 +307,8 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<WorkspaceView>("learn");
+  const [documentationTarget, setDocumentationTarget] =
+    useState<DocumentationSection>("overview");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [messages, setMessages] = useState<Message[]>([]);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -362,6 +371,15 @@ function App() {
       currency: "USD",
       maximumFractionDigits: 2,
     }).format(amount);
+
+  function openDocumentation(section: DocumentationSection) {
+    setDocumentationTarget(section);
+    setActiveView("docs");
+  }
+
+  function closeDocumentation() {
+    setActiveView("learn");
+  }
 
   useEffect(() => {
     api<Session>("/api/session")
@@ -577,6 +595,30 @@ function App() {
   }
 
   if (!session?.authenticated) {
+    if (activeView === "docs") {
+      return (
+        <main className="public-documentation-shell">
+          <header className="auth-topbar">
+            <a className="brand-lockup" href="/">
+              <span className="brand-icon"><Leaf size={19} strokeWidth={2.2} /></span>
+              <span>finch<span className="brand-period">.</span></span>
+            </a>
+            <div className="auth-header-actions">
+              <ThemeToggle />
+              <button type="button" className="documentation-back" onClick={closeDocumentation}>
+                <ArrowLeft size={15} /> Back to sign in
+              </button>
+            </div>
+          </header>
+          <DocumentationPage
+            target={documentationTarget}
+            onNavigate={setDocumentationTarget}
+            onBack={closeDocumentation}
+            publicPage
+          />
+        </main>
+      );
+    }
     return (
       <main className="auth-page">
         <div className="auth-ambient ambient-one" />
@@ -586,7 +628,11 @@ function App() {
             <span className="brand-icon"><Leaf size={19} strokeWidth={2.2} /></span>
             <span>finch<span className="brand-period">.</span></span>
           </a>
-          <span className="topbar-note"><ShieldCheck size={14} /> Your learning space</span>
+          <div className="auth-header-actions">
+            <DocumentationMenu onSelect={openDocumentation} />
+            <ThemeToggle />
+            <span className="topbar-note"><ShieldCheck size={14} /> Your learning space</span>
+          </div>
         </header>
         <div className="auth-layout">
           <section className="auth-intro">
@@ -715,10 +761,16 @@ function App() {
       <main className="main-content">
         <header className="main-header">
           <div className="breadcrumbs"><span>Your workspace</span><span className="crumb-slash">/</span><strong>{VIEW_LABELS[activeView]}</strong></div>
-          <div className="header-right"><span className="privacy-chip"><ShieldCheck size={14} /> {session.role === "admin" ? "Admin space" : "Private space"}</span><span className="header-avatar">{username.slice(0, 1).toUpperCase()}</span></div>
+          <div className="header-right"><DocumentationMenu onSelect={openDocumentation} /><ThemeToggle /><span className="privacy-chip"><ShieldCheck size={14} /> {session.role === "admin" ? "Admin space" : "Private space"}</span><span className="header-avatar">{username.slice(0, 1).toUpperCase()}</span></div>
         </header>
 
-        <div className="page-content">
+        {activeView === "docs" ? (
+          <DocumentationPage
+            target={documentationTarget}
+            onNavigate={setDocumentationTarget}
+            onBack={closeDocumentation}
+          />
+        ) : <div className="page-content">
           <section className="welcome-row" id="learn">
             <div>
               <div className="eyebrow"><span className="eyebrow-line" /> YOUR FINANCIAL LEARNING SPACE</div>
@@ -932,7 +984,7 @@ function App() {
           </section>}
 
           <footer className="page-footer" id="about"><span>FINCH <i>·</i> FINANCIAL LEARNING</span><span>Make room for better questions.</span></footer>
-        </div>
+        </div>}
       </main>
     </div>
   );
